@@ -1,0 +1,25 @@
+#!/usr/bin/env ruby
+
+require 'irb'
+require 'irb/completion'
+require 'optparse'
+
+$LOAD_PATH.unshift File.join(__dir__, "..", "lib")
+require 'selbirin'
+
+include Selbirin
+
+host = nil
+port = nil
+
+parser = OptionParser.new do |opts|
+  opts.on("-h", "--host HOST") { |h| host = h }
+  opts.on("-p", "--port PORT") { |p| port = p.to_i }
+end
+parser.parse!(ARGV)
+
+$WORLD_SERVER = Selbirin::DatabaseConnection.new(host: host, port: port).server
+
+IRB.conf[:IRB_NAME] = "XXX FIXME"
+IRB.conf[:PROMPT_MODE] = :SIMPLE
+IRB.start

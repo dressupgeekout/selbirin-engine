@@ -1,0 +1,93 @@
+#!/usr/bin/env ruby
+#
+# XXX properly trap SIGINT
+# XXX allow for --logfile, or tee out all logs by default
+
+require 'drb'
+require 'logger'
+require 'optparse'
+require 'rinda/tuplespace'
+
+$LOAD_PATH.unshift File.join(__dir__, "..", "lib")
+require 'selbirin'
+
+module Selbirin
+
+class Listener
+  attr_reader :cache_location
+
+  def initialize(argv)
+    @argv = argv
+    @host = DatabaseConnection::DEFAULT_HOST
+    @port = DatabaseConnection::DEFAULT_PORT
+    @logger = Logger.new($stdout)
+    @cache_location = DatabaseCache::DEFAULT_PATH
+    @wipeout_requested = false
+    @verbose = false
+  end
+
+  def main
+    if (rv = parse_options) then return rv end
+
+    uri = DatabaseConnection.uri_from(host: @host, port: @port)
+
+    DRb.start_service
+
+    @ts = DRbObject.new_with_uri(uri)
+
+    @cache = DatabaseCache.new(at: @cache_location)
+
+    wipeout! if @wipeout_requested
+    
+    $stderr.puts "Listening on #{uri}"
+
+    # XXX really, persistence should be a feature of merely writing and/or
+    # taking from the tuplespace, rather than as a result of logging what
+    # happened... right?
+    @ts.notify(nil, Util.filter()).each do |notification|
+      event, obj = notification
+      @logger.info(notification)
+
+      if obj["kind"] != Message::THING_KIND
+        case event
+        when "write"
+          @cache.commit(obj)
+        when "delete"
+          @cache.delete(obj["id"])
+        end
+      end
+    end
+
+    return 0
+  end
+
+  def parse_options
+    parser = OptionParser.new do |opts|
+      opts.on("-v", "--verbose") { @verbose = true }
+      opts.on("-h", "--host HOST") { |h| @host = h }
+      opts.on("-p", "--port PORT") { |p| @port = p.to_i }
+      opts.on("--wipeout") { @wipeout_requested = true }
+    end
+    parser.parse!(ARGV)
+    return nil
+  end
+
+  def wipeout!
+    $stderr.puts("Wiping out database...")
+      @cache.all_ids.each { |id|
+        @ts.read_all(Util.filter(id: id)).each { |obj|
+          $stderr.puts("DELETING " + obj["id"]) if @verbose
+          @ts.take(Util.filter(id: obj["id"]))
+        }
+        @cache.remove(id)
+      }
+    $stderr.puts("Finished wiping out database.")
+  end
+end
+
+end # module Selbirin
+
+#########
+
+rv = Selbirin::Listener.new(ARGV).main
+exit rv

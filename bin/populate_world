@@ -1,0 +1,61 @@
+#!/usr/bin/env ruby
+
+require 'optparse'
+require 'yaml'
+
+$LOAD_PATH.unshift File.join(__dir__, "..", "lib")
+require 'selbirin'
+
+module Selbirin
+
+class PopulateWorld
+  def initialize(argv)
+    @argv = argv
+    @host = nil
+    @port = nil
+  end
+
+  def main
+    if (rv = parse_options) then return rv end
+    @db_connection = DatabaseConnection.new(host: @host, port: @port)
+
+    doc = YAML.load(File.read(@yaml_file))
+
+    doc["artifacts"].each do |artifact|
+      # Artifact.new
+    end
+
+    return 0
+  end
+
+  def parse_options
+    parser = OptionParser.new do |opts|
+      opts.on("-h", "--host HOST") { |h| @host = h }
+      opts.on("-p", "--port PORT") { |p| @port = p.to_i }
+    end
+    parser.parse!(@argv)
+
+    @yaml_file = ARGV.shift
+
+    if not @yaml_file
+      $stderr.puts("Expected a path")
+      return 1
+    end
+
+    @yaml_file = File.expand_path(@yaml_file)
+
+    if not File.file?(@yaml_file)
+      $stderr.puts("not a file: #{@yaml_file.inspect}")
+      return 1
+    end
+
+    return nil
+  end
+end
+
+end # module Selbirin
+
+##########
+
+rv = Selbirin::PopulateWorld.new(ARGV).main 
+exit rv

@@ -1,0 +1,76 @@
+#!/usr/bin/env ruby
+#
+# XXX load from the cache at startup if present
+#
+# XXX the Listener needs to be folded into here somehow; a separate thread i guess
+
+require 'drb'
+require 'optparse'
+require 'rinda/tuplespace'
+
+$LOAD_PATH.unshift File.join(__dir__, "..", "lib")
+require 'selbirin'
+
+module Selbirin
+
+class Server
+  def initialize(argv)
+    @argv = argv
+    @host = nil
+    @port = nil
+    @verbose = false
+    @requested_world = nil
+  end
+
+  def main
+    if (rv = parse_options) then return rv end
+
+    uri = DatabaseConnection.uri_from(host: @host, port: @port)
+
+    $stderr.puts("Listening on #{uri}")
+    @ts = Rinda::TupleSpace.new
+    DRb.start_service(uri, @ts)
+
+    load_previous_world
+
+    trap("INT") do
+      exit
+    end
+
+    at_exit do
+      $stderr.puts("shutting down...")
+      # XXX sync pending operations to disk 
+      DRb.thread.kill
+    end
+
+    DRb.thread.join
+    return 0
+  end
+
+  def parse_options
+    parser = OptionParser.new do |opts|
+      opts.on("-h", "--host HOST") { |h| @host = h }
+      opts.on("-p", "--port PORT") { |p| @port = p.to_i }
+      opts.on("-w", "--world WORLD") { |w| @requested_world = w }
+      opts.on("-v", "--verbose") { @verbose = true }
+    end
+    parser.parse!(@argv)
+    return nil
+  end
+
+  # XXX parameters for where the cache is
+  def load_previous_world
+    cache = DatabaseCache.new
+    cache.all_ids.each do |id|
+      $stderr.puts("LOAD #{id}") if @verbose
+      @ts.write(cache.get(id))
+    end
+  end
+end
+
+end # module Selbirin
+
+##########
+
+rv = Selbirin::Server.new(ARGV).main
+exit rv

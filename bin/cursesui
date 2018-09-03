@@ -1,0 +1,215 @@
+#!/usr/bin/env ruby
+
+require 'fileutils'
+require 'optparse'
+
+require 'curses'
+
+$LOAD_PATH.unshift File.join(__dir__, "..", "lib")
+require 'selbirin'
+
+module Selbirin
+
+# XXX hmm I want to inherit from BasicObject but 'binding' comes from Kernel
+# >:|
+#
+# XXX this doesn't quite dtrt
+class ScriptingEvaluationContext
+  undef :`
+  undef :system
+
+  def get_binding
+    return binding
+  end
+end
+
+class CursesUI
+  def initialize(argv)
+    @argv = argv
+    @host = nil
+    @port = nil
+    @db_dxn = nil
+    @username = `id -un`.chomp
+    @hostname = `hostname`.chomp
+    @reading_window_mutex = Mutex.new
+    @scripting_evaluation_context = ScriptingEvaluationContext.new.get_binding
+
+    historyfile_path = File.expand_path("~/.cache/rpg/cursesui-history.txt")
+    FileUtils.mkdir_p(File.dirname(historyfile_path))
+    # XXX erases previous session, but unconditional "a" makes the file grow
+    # forever
+    @historyfile = File.open(historyfile_path, "w")
+  end
+
+  def main
+    if (rv = parse_options) then return rv end
+    setup
+
+    @main_loop_thread = Thread.new do
+      main_loop
+    end
+
+    @incoming_messages_thread = Thread.new do
+      $WORLD_SERVER.notify("write", Util.filter()).each do |notification|
+        event, obj = notification
+        from = obj["attrs"]["__from__"]
+        body = obj["attrs"]["__body__"]
+        if body =~ /^\/me/
+          reading_window_feed("* #{from} #{body.sub('/me ', '')}")
+        else
+          reading_window_feed("#{Time.now.to_s} <#{from}> #{body}")
+        end
+      end
+    end
+
+    [@main_loop_thread, @incoming_messages_thread].each { |thread| thread.join }
+
+    trap("INT") do
+      [@main_loop_thread, @incoming_messages_thread].each { |thread|
+        thread.kill if !thread.alive?
+      }
+      teardown
+      return 0
+    end
+
+    teardown
+    return 0
+  end
+
+  def parse_options
+    parser = OptionParser.new do |opts|
+      opts.on("-h", "--host HOST") { |h| @host = h }
+      opts.on("-p", "--port PORT") { |p| @port = p.to_i }
+      opts.on("-u", "--username NAME") { |u| @username = u } # XXX
+    end
+    parser.parse!(@argv)
+    $WORLD_SERVER = DatabaseConnection.new(host: @host, port: @port).server
+    return nil
+  end
+
+  def setup
+    Curses.init_screen
+    Curses.start_color if Curses.has_colors?
+    Curses.echo
+    Curses.curs_set(1) # visible cursor
+    Curses.clear
+
+    @reading_window = Curses::Window.new(Curses.lines-1, Curses.cols, 0, 0)
+    @reading_window.scrollok(true)
+    @reading_window.setpos(0, 0)
+
+    @writing_window = Curses::Window.new(1, Curses.cols, Curses.lines-1, 0)
+    @writing_window.setpos(0, 0)
+  end
+
+  # XXX should exit cleanly even with ^C
+  def main_loop
+    @quit_requested = false
+
+    until @quit_requested
+      @writing_window.addstr(prompt)
+      @writing_window.refresh
+      line = @writing_window.getstr
+      handle(line)
+      @writing_window.erase
+      @writing_window.setpos(0, 0)
+    end
+
+    # XXX killing one thread from another? idk... seems to work ok though.
+    @incoming_messages_thread.kill
+  end
+
+  def handle(line)
+    return if line.empty?
+    write_to_historyfile(line)
+    tokens = line.strip.split(/\s+/)
+
+    case tokens[0]
+    when "/artifacts"
+      display_artifacts
+    when "/eval" 
+      __eval(line.sub("/eval", ""))
+    when "/load"
+      __eval(File.read(File.expand_path(tokens[1])))
+    when "/quit"
+      @quit_requested = true
+    else
+      Message.new(from: "#{@username}@#{@hostname}", body: line)
+    end
+  end
+
+  def display_artifacts
+    artifacts = $WORLD_SERVER.read_all(Util.filter(kind: Artifact::THING_KIND)).map { |art|
+      art["attrs"]["__name__"] || "(nil)"
+    }
+    if artifacts.empty?
+      reading_window_feed("-> (no artifacts!)")
+    else
+      reading_window_feed(artifacts.sort.map { |art| "- #{art}" }.join("\n"))
+    end
+  end
+  private(:display_artifacts)
+
+  # XXX ugh. FWIW there is such thing as creating a new thread and setting
+  # $SAFE -- apparently even though it's a global var, its value is different
+  # depending on the current thread.
+  #
+  #    http://www.phrogz.net/ProgrammingRuby/taint.html
+  def __eval(script)
+    begin
+      # XXX TERRIBLE; should come up with a minilanguage or a DSL or use
+      # another scripting language or something
+      eval(script)#, @scripting_evaluation_context)
+    rescue => err
+      # XXX errors reported in this way need to be offest from other
+      # messages in an obvious way
+      reading_window_feed(err.inspect)
+    end
+  end
+  private(:__eval)
+
+  # XXX should be the character's current location or something like that
+  def prompt
+    return "> "
+  end
+
+  def reading_window_feed(text)
+    @reading_window_mutex.synchronize do
+      @reading_window.addstr(text + "\n")
+      @reading_window.refresh
+    end
+  end
+
+  def write_to_historyfile(string)
+    @historyfile.puts(string)
+    @historyfile.flush
+  end
+  private(:write_to_historyfile)
+
+  def teardown
+    @historyfile.close
+    @reading_window.erase
+    @writing_window.erase
+    @reading_window.close
+    @writing_window.close
+    Curses.clear
+    Curses.refresh
+    Curses.close_screen
+  end
+end
+
+end # module Selbirin
+
+#####
+
+begin
+  app = Selbirin::CursesUI.new(ARGV)
+  rv = app.main
+rescue => err
+  rv = 1
+  app.teardown
+  $stderr.puts(err.inspect)
+ensure
+  exit rv
+end
+
