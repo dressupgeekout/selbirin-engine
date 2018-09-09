@@ -1,3 +1,6 @@
+BUNDLE?=	bundle
+RDOC?=		rdoc
+
 VENDOR_DIR=	$(CURDIR)/vendor
 
 ifdef WITHOUT_CURSES
@@ -22,7 +25,7 @@ help:
 
 .PHONY: rdoc
 rdoc:
-	rdoc --root=$(CURDIR) --all		\
+	$(RDOC) --root=$(CURDIR) --all		\
 		-t XXXFIXME			\
 		-x "test/*"			\
 		-x "example/*"			\
@@ -34,8 +37,8 @@ rdoc:
 
 .PHONY: bundle-install
 bundle-install:
-	bundle install $(without_curses_arg) $(without_tests_arg) --path $(CURDIR)/vendor
+	$(BUNDLE) install $(without_curses_arg) $(without_tests_arg) --path $(CURDIR)/vendor
 
 .PHONY: unit-tests
 unit-tests:
-	bundle exec bacon tests/*.rb
+	$(BUNDLE) exec bacon tests/*.rb
