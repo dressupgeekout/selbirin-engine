@@ -26,5 +26,45 @@ temporarily removing a Thing from the World. Most notably, players who log
 out of the World server are not deleted from the world, but rather are
 moved to `:__NOWHERE__` until they log back in again.
 
+
+## Character->Artifact Interaction Protocol
+
+An Artifact must respond to the method `#actions` which returns an array of
+ActionSpecs. An ActionSpec consists of a human-readable name and a
+machine-readable identifier for the method which implements this action.
+
+For example, the following implements a Potion which can be drunk or broken.
+
+```ruby
+class Potion < Selbirin::Artifact
+  def actions
+    return [
+      ActionSpec.new(:drink, "Drink it."),
+      ActionSpec.new(:break, "Break the bottle."),
+    ]
+  end
+
+  def drink
+    # ...
+  end
+
+  def break
+    # ...
+  end
+end
+```
+
+The first argument of `ActionSpec.new` must be a symbol; it represents the
+method which will be called when a Character performs the specified action.
+It is an error to provide the user an ActionSpec which represents a method
+that cannot be invoked.
+
+Note that `#actions` is not an array, but rather a method which must return
+an array. This means that the set of actions available to an Artifact can
+change based on other factors. For example, "open the lock" might be
+available only while the Character is in possession of the appropriate key.
+Or maybe only certain kinds of Characters can interact with the Artifact in
+certain ways. It's all up to you!
+
 [linda]: https://en.wikipedia.org/wiki/Linda_(coordination_language)
 [tuple space]: https://en.wikipedia.org/wiki/Tuple_space

@@ -21,7 +21,7 @@ class Artifact < Thing
   end
 
   # Does nothing by default; users are encouraged to subclass Artifact and
-  # allow for cool interactivity
+  # allow for cool interactivity.
   def interact(character, **kwargs)
     return nil
   end
