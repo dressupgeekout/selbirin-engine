@@ -34,7 +34,6 @@ class Listener
     DRb.start_service
 
     @ts = DRbObject.new_with_uri(uri)
-
     @cache = DatabaseCache.new(at: @cache_location)
 
     wipeout! if @wipeout_requested

@@ -2,13 +2,18 @@ $LOAD_PATH.unshift File.join(__dir__, "..", "lib")
 require 'selbirin'
 
 class Bomb < Selbirin::Artifact
-  def initialize(**kwargs)
-    super(**kwargs)
+  def initialize(*args, **kwargs)
+    super(*args, **kwargs)
     @tries = 3
   end
 
-  def interact(character, **kwargs)
-    super(character, **kwargs)
+  def actions
+    return [
+      ActionSpec.new(:touch, "Interact with it.")
+    ]
+  end
+
+  def touch(character, **kwargs)
     if @tries > 0
       announce("Seems okay.")
       @tries = @tries - 1
