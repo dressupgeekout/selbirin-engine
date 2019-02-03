@@ -15,6 +15,11 @@ else
 without_tests_arg=	# defined
 endif
 
+ifdef WITHOUT_TK
+without_tk_arg=		--without tk
+else
+without_tk_arg=		# defined
+endif
 
 .PHONY: help
 help:

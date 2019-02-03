@@ -7,3 +7,7 @@ end
 group :curses do
   gem "curses"
 end
+
+group :tk do
+  gem "tk"
+end
